@@ -53,15 +53,16 @@ int  sys_getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count
 	return 0;
 }
 unsigned int sys_sleep(unsigned int seconds){
-	printk("sleep ok1\n");
-	// pause();
-	sys_alarm((long)(seconds));	
-	sys_signal();
+	int k =0 ;
+	while(k<=seconds*1000000)//{
+		k++;
+	sys_alarm(seconds);	
 	return 0;
 }
-int  sys_getcwd(char * buf, size_t size){
-	printk("ok in sys getcwd");
-	return 0;
+char *sys_getcwd(char * buf, size_t size){
+	buf = (char *)malloc(size);
+	printk("ok in sys getcwd,%d\n",size);
+	return buf;
 }
 /*
  * create_tables() parses the env- and arg-strings in new user
