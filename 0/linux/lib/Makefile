@@ -71,7 +71,3 @@ wait.s wait.o : wait.c ../include/unistd.h ../include/sys/stat.h \
 write.s write.o : write.c ../include/unistd.h ../include/sys/stat.h \
   ../include/sys/types.h ../include/sys/times.h ../include/sys/utsname.h \
   ../include/utime.h 
-
-# 修改
-# new_syscalls.s new_syscalls.o : new_syscalls.c ../include/unistd.h ../include/linux/kernel.h \
-#   ../include/linux/sys.h
