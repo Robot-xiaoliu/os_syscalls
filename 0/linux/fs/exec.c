@@ -27,7 +27,6 @@
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <asm/segment.h>
-
 extern int sys_exit(int exit_code);
 extern int sys_close(int fd);
 
@@ -44,20 +43,24 @@ int sys_uselib()
 	return -ENOSYS;
 }
 // 修改 
-int sys_execve2(const char *path, char * argv[], char * envp[]){
-	printk("ok");
-	return -1;
-}
+// int sys_execve2(const char *path, char ** argv, char **envp){
+// 	// unsigned long eip[4] = {1,1,0,0};
+// 	do_execve(eip,1,path,argv,envp);
+// 	return -1;
+// }
 int  sys_getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count){
-	printk("ok");
+	printk("sys now ok");
 	return 0;
 }
-int sys_sleep(unsigned int seconds){
-	printk("ok");
+unsigned int sys_sleep(unsigned int seconds){
+	printk("sleep ok1\n");
+	// pause();
+	sys_alarm((long)(seconds));	
+	sys_signal();
 	return 0;
 }
 int  sys_getcwd(char * buf, size_t size){
-	printk("ok");
+	printk("ok in sys getcwd");
 	return 0;
 }
 /*
