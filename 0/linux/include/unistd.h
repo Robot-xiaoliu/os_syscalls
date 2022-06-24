@@ -270,12 +270,6 @@ int getppid(void);
 pid_t getpgrp(void);
 pid_t setsid(void);
 
-// 修改
-// int execve2(const char *path, char ** argv, char** envp);/
-// int getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count);
-// unsigned int sleep(unsigned int seconds);
-// long (char * buf, size_t size);
-
 #define __always_inline inline __attribute__((always_inline))
 
 #endif

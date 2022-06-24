@@ -57,8 +57,8 @@ sa_handler = 0
 sa_mask = 4
 sa_flags = 8
 sa_restorer = 12
-# 修改  数值 86 -> 91
-nr_system_calls = 92
+# 修改  数值 86 -> 92
+nr_system_calls = 92 # 必须为92，否则sys_getcwd会因不明原因无法运行。
 
 /*
  * Ok, I get parallel printer interrupts while using the floppy for some
@@ -205,10 +205,10 @@ sys_execve:
 	ret
 
 .align 4
-sys_execve2:
-	lea EIP(%esp),%eax
+sys_execve2:		# 修改
+ 	lea EIP(%esp),%eax
 	pushl %eax
-	call do_execve
+	call my_do_execve
 	addl $4,%esp
 	ret
 

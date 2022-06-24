@@ -28,6 +28,8 @@
 #include <linux/kernel.h>
 #include <linux/mm.h>
 #include <asm/segment.h>
+
+// 添加的头文件
 extern int sys_exit(int exit_code);
 extern int sys_close(int fd);
 
@@ -43,67 +45,7 @@ int sys_uselib()
 {
 	return -ENOSYS;
 }
-// 修改 
-// int sys_execve2(const char *path, char ** argv, char **envp){
-//     /*
-//     功能：
-//         以⽴即加载⽅式执⾏⼀个指定的程序。此系统调⽤开始后，该进程不应再发⽣代码段和数据段中的缺⻚故障。
-//     输入：
-//         path: 待执⾏程序路径名称，
-//         argv: 程序的参数，
-//         envp: 环境变量的数组指针
-//     返回值：
-//         成功不返回，失败返回-1
-//     */
-// 	unsigned long eip[4] = {1,1,0,0};
-// 	do_execve(eip,1,path,argv,envp);
-// 	return -1;
-// }
-int  sys_getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count){
-	/*
-    功能：
-        获取⽬录的⽬录项。
-    输⼊：
-        fd：所要读取⽬录的⽂件描述符。
-        dirp：⼀个缓存区，⽤于保存所读取⽬录的信息。缓存区的结构如下：
-    返回值：
-        成功执⾏，返回读取的字节数。当到⽬录结尾，则返回0。失败，则返回-1
-    */
-	printk("sys now ok");
-	return 0;
-}
-unsigned int sys_sleep(unsigned int seconds){
-	/*
-    功能：
-        执⾏进程睡眠；
-    输⼊：
-        睡眠的时间间隔；seconds: 秒
-    返回值：
-        成功返回0，失败返回-1;
-    */
-	int i=0;
-	(void)sys_signal(SIGALRM,SIG_IGN);
-	for(;i<seconds;++i){
-		sys_alarm(1);
-		pause();
-	}
-	return 0;
-}
-char *sys_getcwd(char * buf, size_t size){
-	/*
-    功能：
-        获取当前⼯作⽬录； 
-    输⼊：
-        char *buf：⼀块缓存区，⽤于保存当前⼯作⽬录的字符串。当buf设为NULL，由系统来分配缓存区。
-        size：buf缓存区的⼤⼩。
-    返回值：
-        成功执⾏，则返回当前⼯作⽬录的字符串的指针。失败，则返回NULL。
-    */
-	buf = (char *)malloc(size);
-	// 完成getcwd:
-	printk("ok in sys getcwd,%d\n",size);
-	return buf;
-}
+
 /*
  * create_tables() parses the env- and arg-strings in new user
  * memory and creates the pointer tables from them, and puts their
@@ -260,6 +202,7 @@ int do_execve(unsigned long * eip,long tmp,char * filename,
 
 	if ((0xffff & eip[1]) != 0x000f)
 		panic("execve called from supervisor mode");
+
 	for (i=0 ; i<MAX_ARG_PAGES ; i++)	/* clear page-table */
 		page[i]=0;
 	if (!(inode=namei(filename)))		/* get executables inode */
@@ -416,4 +359,268 @@ exec_error1:
 	for (i=0 ; i<MAX_ARG_PAGES ; i++)
 		free_page(page[i]);
 	return(retval);
+}
+
+// ///////////////////////////////////////////////////////////////////////////////////////////////
+// 修改 
+int my_do_execve(unsigned long *eip,long tmp,const char *path, char ** argv, char **envp){
+    /*
+    功能：
+        以⽴即加载⽅式执⾏⼀个指定的程序。此系统调⽤开始后，该进程不应再发⽣代码段和数据段中的缺⻚故障。
+    输入：
+        path: 待执⾏程序路径名称，
+        argv: 程序的参数，
+        envp: 环境变量的数组指针
+    返回值：
+        成功不返回，失败返回-1
+    */
+	struct m_inode * inode;
+	struct buffer_head * bh;
+	struct exec ex;
+	unsigned long page[MAX_ARG_PAGES];
+	int i,argc,envc;
+	int e_uid, e_gid;
+	int retval;
+	int sh_bang = 0;
+	unsigned long p=PAGE_SIZE*MAX_ARG_PAGES-4;
+
+	if ((0xffff & eip[1]) != 0x000f)
+		panic("execve called from supervisor mode");
+
+	for (i=0 ; i<MAX_ARG_PAGES ; i++)	/* clear page-table */
+		page[i]=0;
+	if (!(inode=namei(path)))		/* get executables inode */
+		return -ENOENT;
+	argc = count(argv);
+	envc = count(envp);
+	
+restart_interp:
+	if (!S_ISREG(inode->i_mode)) {	/* must be regular file */
+		retval = -EACCES;
+		goto exec_error2;
+	}
+	i = inode->i_mode;
+	e_uid = (i & S_ISUID) ? inode->i_uid : current->euid;
+	e_gid = (i & S_ISGID) ? inode->i_gid : current->egid;
+	if (current->euid == inode->i_uid)
+		i >>= 6;
+	else if (current->egid == inode->i_gid)
+		i >>= 3;
+	if (!(i & 1) &&
+	    !((inode->i_mode & 0111) && suser())) {
+		retval = -ENOEXEC;
+		goto exec_error2;
+	}
+	if (!(bh = bread(inode->i_dev,inode->i_zone[0]))) {
+		retval = -EACCES;
+		goto exec_error2;
+	}
+	ex = *((struct exec *) bh->b_data);	/* read exec-header */
+	if ((bh->b_data[0] == '#') && (bh->b_data[1] == '!') && (!sh_bang)) {
+		/*
+		 * This section does the #! interpretation.
+		 * Sorta complicated, but hopefully it will work.  -TYT
+		 */
+
+		char buf[1023], *cp, *interp, *i_name, *i_arg;
+		unsigned long old_fs;
+
+		strncpy(buf, bh->b_data+2, 1022);
+		brelse(bh);
+		iput(inode);
+		buf[1022] = '\0';
+		if (cp = strchr(buf, '\n')) {
+			*cp = '\0';
+			for (cp = buf; (*cp == ' ') || (*cp == '\t'); cp++);
+		}
+		if (!cp || *cp == '\0') {
+			retval = -ENOEXEC; /* No interpreter name found */
+			goto exec_error1;
+		}
+		interp = i_name = cp;
+		i_arg = 0;
+		for ( ; *cp && (*cp != ' ') && (*cp != '\t'); cp++) {
+ 			if (*cp == '/')
+				i_name = cp+1;
+		}
+		if (*cp) {
+			*cp++ = '\0';
+			i_arg = cp;
+		}
+		/*
+		 * OK, we've parsed out the interpreter name and
+		 * (optional) argument.
+		 */
+		if (sh_bang++ == 0) {
+			p = copy_strings(envc, envp, page, p, 0);
+			p = copy_strings(--argc, argv+1, page, p, 0);
+		}
+		/*
+		 * Splice in (1) the interpreter's name for argv[0]
+		 *           (2) (optional) argument to interpreter
+		 *           (3) path of shell script
+		 *
+		 * This is done in reverse order, because of how the
+		 * user environment and arguments are stored.
+		 */
+		p = copy_strings(1, &path, page, p, 1);
+		argc++;
+		if (i_arg) {
+			p = copy_strings(1, &i_arg, page, p, 2);
+			argc++;
+		}
+		p = copy_strings(1, &i_name, page, p, 2);
+		argc++;
+		if (!p) {
+			retval = -ENOMEM;
+			goto exec_error1;
+		}
+		/*
+		 * OK, now restart the process with the interpreter's inode.
+		 */
+		old_fs = get_fs();
+		set_fs(get_ds());
+		if (!(inode=namei(interp))) { /* get executables inode */
+			set_fs(old_fs);
+			retval = -ENOENT;
+			goto exec_error1;
+		}
+		set_fs(old_fs);
+		goto restart_interp;
+	}
+	brelse(bh);
+	if (N_MAGIC(ex) != ZMAGIC || ex.a_trsize || ex.a_drsize ||
+		ex.a_text+ex.a_data+ex.a_bss>0x3000000 ||
+		inode->i_size < ex.a_text+ex.a_data+ex.a_syms+N_TXTOFF(ex)) {
+		retval = -ENOEXEC;
+		goto exec_error2;
+	}
+	if (N_TXTOFF(ex) != BLOCK_SIZE) {
+		printk("%s: N_TXTOFF != BLOCK_SIZE. See a.out.h.", path);
+		retval = -ENOEXEC;
+		goto exec_error2;
+	}
+	if (!sh_bang) {
+		p = copy_strings(envc,envp,page,p,0);
+		p = copy_strings(argc,argv,page,p,0);
+		if (!p) {
+			retval = -ENOMEM;
+			goto exec_error2;
+		}
+	}
+/* OK, This is the point of no return */
+	if (current->executable)
+		iput(current->executable);
+	current->executable = inode;
+	for (i=0 ; i<32 ; i++)
+		current->sigaction[i].sa_handler = NULL;
+	for (i=0 ; i<NR_OPEN ; i++)
+		if ((current->close_on_exec>>i)&1)
+			sys_close(i);
+	current->close_on_exec = 0;
+	free_page_tables(get_base(current->ldt[1]),get_limit(0x0f));
+	free_page_tables(get_base(current->ldt[2]),get_limit(0x17));
+	if (last_task_used_math == current)
+		last_task_used_math = NULL;
+	current->used_math = 0;
+	p += change_ldt(ex.a_text,page)-MAX_ARG_PAGES*PAGE_SIZE;
+	p = (unsigned long) create_tables((char *)p,argc,envc);
+	current->brk = ex.a_bss +
+		(current->end_data = ex.a_data +
+		(current->end_code = ex.a_text));
+	current->start_stack = p & 0xfffff000;
+	current->euid = e_uid;
+	current->egid = e_gid;
+	i = ex.a_text+ex.a_data;
+	while (i&0xfff)
+		put_fs_byte(0,(char *) (i++));
+	eip[0] = ex.a_entry;		/* eip, magic happens :-) */
+	eip[3] = p;			/* stack pointer */
+	return 0;
+exec_error2:
+	iput(inode);
+exec_error1:
+	for (i=0 ; i<MAX_ARG_PAGES ; i++)
+		free_page(page[i]);
+	return (retval);
+	// return -1;
+}
+struct linux_dirent {
+	long d_ino;		// 索引节点号
+	off_t d_off;	// 在目录文件中的偏移
+	unsigned short d_reclen;// 结构体大小
+	char d_name[];	// 文件名
+};
+int  sys_getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count){
+	/*
+    功能：
+        获取⽬录的⽬录项。
+    输⼊：
+        fd：所要读取⽬录的⽂件描述符。
+        dirp：⼀个缓存区，⽤于保存所读取⽬录的信息。
+    返回值：
+        成功执⾏，返回读取的字节数。当到⽬录结尾，则返回0。失败，则返回-1
+    */
+   	if(fd>NR_OPEN)return -1;
+	struct file * fnow = current->filp[fd];
+	int cnt = 0; //  返回目录项的个数
+	int f_index=0;// 文件读取的序号
+	int i_zone_now;
+	int entries;
+	int ii = 0;
+	for(;f_index<fnow->f_count;f_index++){
+		struct m_inode *m_temp = fnow->f_inode+f_index;
+		entries = m_temp->i_size/(sizeof (struct dir_entry)); // 目录项的个数
+		struct buffer_head * buffer_now = bread(m_temp->i_dev,m_temp->i_zone[0]);
+		if(buffer_now == NULL)
+			continue;
+		struct dir_entry * de = (struct dir_entry *) buffer_now->b_data;
+		ii = 0;
+		// printk("getdent :: %d %d\n",f_index,entries);
+		while(ii<entries){
+			if((char *)de >= BLOCK_SIZE+buffer_now->b_data){
+				break;
+			}
+			// 将de 中的数据写入dirp中即可。
+			// printk("%d %s\n",ii,de->name);
+			// 待添加...
+
+			ii++;
+			de++;
+		}
+	}
+	// printk("sys now ok");
+	return 0;
+}
+unsigned int sys_sleep(unsigned int seconds){
+	/*
+    功能：
+        执⾏进程睡眠；
+    输⼊：
+        睡眠的时间间隔；seconds: 秒
+    返回值：
+        成功返回0，失败返回-1;
+    */
+	int i=0;
+	(void)sys_signal(SIGALRM,SIG_IGN);
+	for(;i<seconds;++i){
+		sys_alarm(1);
+		pause();
+	}
+	return 0;
+}
+char *sys_getcwd(char * buf, size_t size){
+	/*
+    功能：
+        获取当前⼯作⽬录； 
+    输⼊：
+        char *buf：⼀块缓存区，⽤于保存当前⼯作⽬录的字符串。当buf设为NULL，由系统来分配缓存区。
+        size：buf缓存区的⼤⼩。
+    返回值：
+        成功执⾏，则返回当前⼯作⽬录的字符串的指针。失败，则返回NULL。
+    */
+	buf = (char *)malloc(size);
+	// 完成getcwd:
+	printk("ok in sys getcwd,%d\n",size);
+	return buf;
 }
