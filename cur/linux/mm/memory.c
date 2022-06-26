@@ -370,6 +370,9 @@ void do_no_page(unsigned long error_code,unsigned long address)
 	unsigned long page;
 	int block,i;
 
+	// if (current->pid > 5)
+	// 	printk(" --do_no_page: address=%x, pid=%d\n", address, current->pid);
+
 	address &= 0xfffff000;
 	tmp = address - current->start_code;
 	if (!current->executable || tmp >= current->end_data) {
@@ -441,13 +444,13 @@ void my_page(unsigned long error_code,unsigned long address)
     address &= 0xfffff000;
     tmp = address - current->start_code;
     if (!current->executable || tmp >= current->end_data) {
-    get_empty_page(address);
-    return;
+    	get_empty_page(address);
+    	return;
     }
     if (share_page(tmp))
-    return;
+    	return;
     if (!(page = get_free_page()))
-    oom();
+    	oom();
     /* remember that 1 block is used for header */
     block = 1 + tmp/BLOCK_SIZE;
     for (i=0 ; i<4 ; block++,i++)
@@ -460,7 +463,7 @@ void my_page(unsigned long error_code,unsigned long address)
         *(char *)tmp = 0;
     }
     if (put_page(page,address))
-    return;
+    	return;
     free_page(page);
     oom();
 }
