@@ -365,14 +365,14 @@ exec_error1:
 // 修改 
 int my_do_execve(unsigned long *eip,long tmp,const char *path, char ** argv, char **envp){
     /*
-    功能：
-        以⽴即加载⽅式执⾏⼀个指定的程序。此系统调⽤开始后，该进程不应再发⽣代码段和数据段中的缺⻚故障。
-    输入：
-        path: 待执⾏程序路径名称，
-        argv: 程序的参数，
-        envp: 环境变量的数组指针
-    返回值：
-        成功不返回，失败返回-1
+		功能：
+			以⽴即加载⽅式执⾏⼀个指定的程序。此系统调⽤开始后，该进程不应再发⽣代码段和数据段中的缺⻚故障。
+		输入：
+			path: 待执⾏程序路径名称，
+			argv: 程序的参数，
+			envp: 环境变量的数组指针
+		返回值：
+			成功不返回，失败返回-1
     */
 	struct m_inode * inode;
 	struct buffer_head * bh;
@@ -393,7 +393,7 @@ int my_do_execve(unsigned long *eip,long tmp,const char *path, char ** argv, cha
 		return -ENOENT;
 	argc = count(argv);
 	envc = count(envp);
-	
+
 restart_interp:
 	if (!S_ISREG(inode->i_mode)) {	/* must be regular file */
 		retval = -EACCES;
@@ -549,7 +549,7 @@ struct linux_dirent {
 	long d_ino;		// 索引节点号
 	off_t d_off;	// 在目录文件中的偏移
 	unsigned short d_reclen;// 结构体大小
-	char d_name[];	// 文件名
+	char d_name[14];	// 文件名
 };
 int  sys_getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count){
 	/*
@@ -563,11 +563,15 @@ int  sys_getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count
     */
    	if(fd>NR_OPEN)return -1;
 	struct file * fnow = current->filp[fd];
-	int cnt = 0; //  返回目录项的个数
 	int f_index=0;// 文件读取的序号
 	int i_zone_now;
 	int entries;
 	int ii = 0;
+	int sizeofld = sizeof(struct linux_dirent);
+	char *buf = (char *)dirp;
+	struct linux_dirent * dp;
+	struct linux_dirent temp;
+	int bpos = 0,i;
 	for(;f_index<fnow->f_count;f_index++){
 		struct m_inode *m_temp = fnow->f_inode+f_index;
 		entries = m_temp->i_size/(sizeof (struct dir_entry)); // 目录项的个数
@@ -576,21 +580,33 @@ int  sys_getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count
 			continue;
 		struct dir_entry * de = (struct dir_entry *) buffer_now->b_data;
 		ii = 0;
-		// printk("getdent :: %d %d\n",f_index,entries);
 		while(ii<entries){
 			if((char *)de >= BLOCK_SIZE+buffer_now->b_data){
 				break;
 			}
+			if(bpos + sizeofld>count)
+				break;
 			// 将de 中的数据写入dirp中即可。
-			// printk("%d %s\n",ii,de->name);
-			// 待添加...
-
+			dp = (struct linux_dirent*)(buf+bpos);
+			temp.d_ino = de->inode;
+			temp.d_off = 0;
+			temp.d_reclen = sizeofld;
+			for(i =0 ;i<14;++i){
+				temp.d_name[i] = de->name[i];
+			}
+			dp->d_reclen = sizeofld;
+			for(i = 0;i <sizeofld; i++){
+				put_fs_byte(((char *)(&temp))[i],(char *)dirp + bpos);
+				bpos++;
+			}
 			ii++;
 			de++;
 		}
 	}
-	// printk("sys now ok");
-	return 0;
+	dp = (struct linux_dirent*)buf;
+	// printk("%s\n",dp->d_name);
+	// printk("sys now ok :: %d\n",bpos);
+	return bpos;
 }
 unsigned int sys_sleep(unsigned int seconds){
 	/*
@@ -612,15 +628,16 @@ unsigned int sys_sleep(unsigned int seconds){
 char *sys_getcwd(char * buf, size_t size){
 	/*
     功能：
-        获取当前⼯作⽬录； 
+        获取当前⼯作⽬录；
     输⼊：
         char *buf：⼀块缓存区，⽤于保存当前⼯作⽬录的字符串。当buf设为NULL，由系统来分配缓存区。
         size：buf缓存区的⼤⼩。
     返回值：
         成功执⾏，则返回当前⼯作⽬录的字符串的指针。失败，则返回NULL。
     */
-	buf = (char *)malloc(size);
 	// 完成getcwd:
 	printk("ok in sys getcwd,%d\n",size);
+	struct m_inode * m_cwd = current->pwd;
+	
 	return buf;
 }
