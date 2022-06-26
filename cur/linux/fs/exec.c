@@ -222,8 +222,7 @@ restart_interp:
 		i >>= 6;
 	else if (current->egid == inode->i_gid)
 		i >>= 3;
-	if (!(i & 1) &&
-	    !((inode->i_mode & 0111) && suser())) {
+	if (!(i & 1) && !((inode->i_mode & 0111) && suser())) {
 		retval = -ENOEXEC;
 		goto exec_error2;
 	}
@@ -561,51 +560,46 @@ int  sys_getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count
     返回值：
         成功执⾏，返回读取的字节数。当到⽬录结尾，则返回0。失败，则返回-1
     */
-   	if(fd>NR_OPEN)return -1;
+   	if(fd>NR_OPEN)
+		return -1;
 	struct file * fnow = current->filp[fd];
-	int f_index=0;// 文件读取的序号
-	int i_zone_now;
-	int entries;
-	int ii = 0;
-	int sizeofld = sizeof(struct linux_dirent);
-	char *buf = (char *)dirp;
-	struct linux_dirent * dp;
-	struct linux_dirent temp;
-	int bpos = 0,i;
-	for(;f_index<fnow->f_count;f_index++){
+	int entries,bpos = 0,sizeofld = sizeof(struct linux_dirent),i; // bpos指向缓存区写入位置，i为临时变量。
+
+	// 遍历目录的所有区块
+	int f_index=0;	// 序号
+	for(;f_index < fnow->f_count;f_index++){
+		// 读取区块
 		struct m_inode *m_temp = fnow->f_inode+f_index;
-		entries = m_temp->i_size/(sizeof (struct dir_entry)); // 目录项的个数
+		entries = m_temp->i_size/(sizeof (struct dir_entry)); // 当前区块中目录项的个数
 		struct buffer_head * buffer_now = bread(m_temp->i_dev,m_temp->i_zone[0]);
 		if(buffer_now == NULL)
 			continue;
-		struct dir_entry * de = (struct dir_entry *) buffer_now->b_data;
-		ii = 0;
-		while(ii<entries){
-			if((char *)de >= BLOCK_SIZE+buffer_now->b_data){
+	
+		// 循环依次读取目录项并将数据写入缓存，其中 de 为当前目录项指针。
+		struct dir_entry * de = (struct dir_entry *)buffer_now->b_data;	
+		while(entries--){
+			// 判断是否已经读取完，以及判断是否还有剩余的缓存空间容纳数据。
+			if((char *)de >= BLOCK_SIZE + buffer_now->b_data || bpos + sizeofld > count){
 				break;
 			}
-			if(bpos + sizeofld>count)
-				break;
-			// 将de 中的数据写入dirp中即可。
-			dp = (struct linux_dirent*)(buf+bpos);
+			// 创建一个结点
+			struct linux_dirent temp;
 			temp.d_ino = de->inode;
 			temp.d_off = 0;
 			temp.d_reclen = sizeofld;
 			for(i =0 ;i<14;++i){
 				temp.d_name[i] = de->name[i];
 			}
-			dp->d_reclen = sizeofld;
+			// printk("%s\n",temp.de_name); // 测试用
+			// 将结点数据写入缓冲区
 			for(i = 0;i <sizeofld; i++){
 				put_fs_byte(((char *)(&temp))[i],(char *)dirp + bpos);
 				bpos++;
 			}
-			ii++;
 			de++;
 		}
 	}
-	dp = (struct linux_dirent*)buf;
-	// printk("%s\n",dp->d_name);
-	// printk("sys now ok :: %d\n",bpos);
+	// printk("sys now ok :: %d\n",bpos); // 测试用
 	return bpos;
 }
 unsigned int sys_sleep(unsigned int seconds){
@@ -636,39 +630,39 @@ char *sys_getcwd(char * buf, size_t size){
         成功执⾏，则返回当前⼯作⽬录的字符串的指针。失败，则返回NULL。
     */
 	char buf1[1024];
-    char buf2[1024];
-    struct buffer_head *bh;
-    struct m_inode *minode,*preminode,*pwd,*root;         
-    struct dir_entry *de,*prede;  
-    pwd=current->pwd;
-    root=current->root;
-    minode=pwd;
-    do
-    {
-        bh = bread(minode->i_dev, minode->i_zone[0]);    
-        prede = (struct dir_entry *)(bh->b_data+sizeof(struct dir_entry));
-        preminode=iget(minode->i_dev,prede->inode);
-        bh=bread(preminode->i_dev, preminode->i_zone[0]);
-        int nowpos=2*sizeof(struct dir_entry);
-        de = (struct dir_entry *)(bh->b_data+nowpos);
-        while(de->inode)
-        {
-            if(de->inode==minode->i_num)
-            {
-                strcpy(buf1,"/");
-                strcat(buf1,de->name);
-                strcat(buf1,buf2);
-                strcpy(buf2,buf1);
+    struct m_inode *tm_inode=current->pwd;
+    struct dir_entry *de;
+    do{
+		// 目录下文件依次为 . .. 其他文件
+		// 获取上级目录的区块。
+        struct buffer_head *bh = bread(tm_inode->i_dev, tm_inode->i_zone[0]);    
+        struct dir_entry * prede = (struct dir_entry *)(bh->b_data + sizeof(struct dir_entry)); // .. 
+        struct m_inode *pm_inode = iget(tm_inode->i_dev,prede->inode);
+
+		// 在上级目录中找到当前文件的文件名。
+        bh=bread(pm_inode->i_dev, pm_inode->i_zone[0]);
+        de = (struct dir_entry *)(bh->b_data + 2 * sizeof(struct dir_entry));
+        while(de->inode){
+            if(de->inode == tm_inode->i_num){
+				// 条件成立，则将此时的缓冲区修改。
+				char t_buf[1024];
+				// buf1 = '/' + de->name + buf1
+                strcpy(t_buf,"/");
+                strcat(t_buf,de->name);
+                strcat(t_buf,buf1);
+
+                strcpy(buf1,t_buf);
                 break;
             }
-            nowpos=nowpos+sizeof(struct dir_entry);de = (struct dir_entry *)(bh->b_data+nowpos);
+			de++;
         }
-        minode=preminode;
-    } while (minode!=root);
+        tm_inode = pm_inode;
+    } while (tm_inode != current->root);
+    
+	// 将文件名写入缓冲区。
     int i=0;
-    while(buf2[i])
-    {
-        put_fs_byte(buf2[i],buf+i);
+    while(buf1[i]){
+        put_fs_byte(buf1[i],buf+i);
         i++;
     }
     return buf;
