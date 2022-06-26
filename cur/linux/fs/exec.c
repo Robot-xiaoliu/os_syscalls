@@ -635,9 +635,41 @@ char *sys_getcwd(char * buf, size_t size){
     返回值：
         成功执⾏，则返回当前⼯作⽬录的字符串的指针。失败，则返回NULL。
     */
-	// 完成getcwd:
-	printk("ok in sys getcwd,%d\n",size);
-	struct m_inode * m_cwd = current->pwd;
-	
-	return buf;
+	char buf1[1024];
+    char buf2[1024];
+    struct buffer_head *bh;
+    struct m_inode *minode,*preminode,*pwd,*root;         
+    struct dir_entry *de,*prede;  
+    pwd=current->pwd;
+    root=current->root;
+    minode=pwd;
+    do
+    {
+        bh = bread(minode->i_dev, minode->i_zone[0]);    
+        prede = (struct dir_entry *)(bh->b_data+sizeof(struct dir_entry));
+        preminode=iget(minode->i_dev,prede->inode);
+        bh=bread(preminode->i_dev, preminode->i_zone[0]);
+        int nowpos=2*sizeof(struct dir_entry);
+        de = (struct dir_entry *)(bh->b_data+nowpos);
+        while(de->inode)
+        {
+            if(de->inode==minode->i_num)
+            {
+                strcpy(buf1,"/");
+                strcat(buf1,de->name);
+                strcat(buf1,buf2);
+                strcpy(buf2,buf1);
+                break;
+            }
+            nowpos=nowpos+sizeof(struct dir_entry);de = (struct dir_entry *)(bh->b_data+nowpos);
+        }
+        minode=preminode;
+    } while (minode!=root);
+    int i=0;
+    while(buf2[i])
+    {
+        put_fs_byte(buf2[i],buf+i);
+        i++;
+    }
+    return buf;
 }
