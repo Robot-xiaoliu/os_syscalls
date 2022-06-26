@@ -360,6 +360,7 @@ exec_error1:
 	return(retval);
 }
 
+
 // ///////////////////////////////////////////////////////////////////////////////////////////////
 // 修改 
 int my_do_execve(unsigned long *eip,long tmp,const char *path, char ** argv, char **envp){
@@ -507,7 +508,7 @@ restart_interp:
 			goto exec_error2;
 		}
 	}
-/* OK, This is the point of no return */
+	/* OK, This is the point of no return */
 	if (current->executable)
 		iput(current->executable);
 	current->executable = inode;
@@ -524,9 +525,7 @@ restart_interp:
 	current->used_math = 0;
 	p += change_ldt(ex.a_text,page)-MAX_ARG_PAGES*PAGE_SIZE;
 	p = (unsigned long) create_tables((char *)p,argc,envc);
-	current->brk = ex.a_bss +
-		(current->end_data = ex.a_data +
-		(current->end_code = ex.a_text));
+	current->brk = ex.a_bss +(current->end_data = ex.a_data +(current->end_code = ex.a_text));
 	current->start_stack = p & 0xfffff000;
 	current->euid = e_uid;
 	current->egid = e_gid;
@@ -535,6 +534,13 @@ restart_interp:
 		put_fs_byte(0,(char *) (i++));
 	eip[0] = ex.a_entry;		/* eip, magic happens :-) */
 	eip[3] = p;			/* stack pointer */
+	// 修改
+	int i_page=0;
+	while(i_page<current->brk){
+		my_page(1,i_page+current->start_code);
+		i_page+=PAGE_SIZE;
+	}
+	// 为止...
 	return 0;
 exec_error2:
 	iput(inode);
@@ -542,7 +548,6 @@ exec_error1:
 	for (i=0 ; i<MAX_ARG_PAGES ; i++)
 		free_page(page[i]);
 	return (retval);
-	// return -1;
 }
 struct linux_dirent {
 	long d_ino;		// 索引节点号
